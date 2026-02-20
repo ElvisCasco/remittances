@@ -1,0 +1,188 @@
+---
+title: "Geospatial Data Science"
+Authors:
+- Bruno Conte
+format: html
+toc: true
+---
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(here)
+library(leaflet)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(stringi)
+```
+
+```{r}
+# Read municipios_completo sheet from Municipios.xlsx
+FILE_MUNICIPIOS <- here("Municipios.xlsx")
+
+# Read the "municipios_completo" sheet using tidyverse and rename columns
+df_municipios_completo <- read_excel(
+  FILE_MUNICIPIOS, 
+  sheet = "municipios_completo") %>%
+  rename(
+    Municipio = nomMun, 
+    Departamento = nomDepto) %>%
+  mutate(
+    Departamento = stri_trans_general(str_trim(Departamento), "Latin-ASCII"),
+    Municipio = stri_trans_general(str_trim(Municipio), "Latin-ASCII")
+  )
+
+# View the dataframe
+df_municipios_completo
+```
+
+```{r}
+# # Create interactive map with dots for each municipality
+# leaflet(df_municipios_completo) %>%
+#   addTiles() %>%
+#   addCircleMarkers(
+#     ~lon, ~lat,
+#     radius = 3,
+#     color = "blue",
+#     fillOpacity = 0.6,
+#     popup = ~paste0("Municipio: ", Municipio, "<br>Lat: ", lat, "<br>Lon: ", lon)
+#   )
+```
+
+```{r}
+# Read Municipio sheet from Remesas.xlsx
+FILE_REMESAS <- here("Remesas.xlsx")
+
+# Read the "Municipio" sheet using tidyverse
+df_remesas_municipio <- read_excel(
+  FILE_REMESAS, 
+  sheet = "Municipio", 
+  skip = 0) %>%
+  mutate(
+    Departamento = stri_trans_general(str_trim(Departamento), "Latin-ASCII"),
+    Municipio = stri_trans_general(str_trim(Municipio), "Latin-ASCII")
+  )
+df_remesas_municipio
+```
+
+```{r}
+# Perform the join
+df_remesas_municipio <- df_remesas_municipio %>%
+  left_join(
+    df_municipios_completo %>% select(Departamento, Municipio, lat, lon),
+    by = c("Departamento" = "Departamento", "Municipio" = "Municipio")
+  )
+
+# Display the result with new columns
+df_remesas_municipio
+```
+
+```{r}
+# Report NA counts for latitude and longitude
+na_counts <- df_remesas_municipio %>%
+  summarise(
+    lat_na = sum(is.na(lat)),
+    lon_na = sum(is.na(lon)),
+    total_rows = n()
+  )
+
+print(na_counts)
+
+cat("\nFirst rows with missing lat or lon:\n")
+print(
+  df_remesas_municipio %>%
+    filter(is.na(lat) | is.na(lon)) %>%
+  select(Departamento, Municipio, lat, lon)
+)
+```
+
+
+```{r}
+# Get Honduras boundaries
+honduras <- ne_states(
+  country = "Honduras", 
+  returnclass = "sf")
+honduras_country <- ne_countries(
+  scale = "medium", 
+  country = "Honduras", 
+  returnclass = "sf")
+```
+
+```{r}
+df_dept <- df_remesas_municipio %>%
+  group_by(Departamento) %>%
+  summarise(monto_sum = sum(.data[["Monto"]], na.rm = TRUE), .groups = "drop")
+
+# compute national total and proportion
+total_remesas <- sum(df_dept$monto_sum, na.rm = TRUE)
+df_dept <- df_dept %>% 
+  mutate(prop = monto_sum / total_remesas)
+df_dept
+
+honduras_dept_sf <- honduras %>%
+  mutate(
+    Departamento_shape = stri_trans_general(str_trim(.data[["name"]]), "Latin-ASCII")
+  )
+
+# normalize df_dept names for join
+df_dept <- df_dept %>% 
+  mutate(
+    Departamento = stri_trans_general(
+      str_trim(Departamento), "Latin-ASCII"))
+
+# join shapes with aggregated data
+honduras_dept_sf <- honduras_dept_sf %>%
+  left_join(df_dept, by = c("Departamento_shape" = "Departamento"))
+
+library(viridis)
+
+ggplot(honduras_dept_sf) +
+  geom_sf(aes(
+    fill = prop), color = "white", linewidth = 0.2) +
+  scale_fill_gradient(low = "#deebf7", high = "#08306b", labels = scales::percent_format(accuracy = 0.1), name = "Share of\nTotal Remesas") +
+  theme_minimal() +
+  labs(title = "Proportion of Remittances by Department",
+       subtitle = "Share of national remittances received by department",
+       caption = paste0("Total remittances: ", scales::comma(total_remesas))) +
+  theme(legend.position = "right")
+```
+
+
+```{r}
+# Create static map with ggplot including boundaries and point size = summed Monto
+ggplot() +
+  geom_sf(
+    data = honduras_country, 
+    fill = "white", 
+    color = "black", 
+    linewidth = 1) +
+  geom_sf(
+    data = honduras, 
+    fill = NA, 
+    color = "gray50", 
+    linewidth = 0.5) +
+  geom_point(
+    data = df_remesas_municipio %>%
+      group_by(Departamento, Municipio, lat, lon) %>%
+      summarise(Monto = sum(Monto, na.rm = TRUE)),
+    aes(x = lon, y = lat, size = Monto/1000000),
+    color = "blue", 
+    alpha = 0.6) +
+  scale_size_area(
+    max_size = 10, 
+    name = "USD Amount\nMillions") +
+  theme_minimal() +
+  labs(
+    title = "Municipalities: Size by Sum of USD Amount",
+    x = "Longitud",
+    y = "Latitud"
+  ) +
+  coord_sf()
+```
+
+The reception of remittances in Honduras is highly concentrated in the departments of Francisco Morazán and Cortés, which includes the major cities of Tegucigalpa and San Pedro Sula. This is evident from the larger point size representing the sum of remittances in that area.
+
+The second map highlights the spatial distribution of remittance reception across different municipalities, indicating that certain areas are more reliant on remittances than others.
+
+

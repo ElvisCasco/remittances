@@ -1,0 +1,17 @@
+# Ignore R session files and system files
+.Rhistory
+.RData
+.Rproj.user/
+.Ruserdata
+.DS_Store
+Thumbs.db
+~$*
+*.tmp
+*.log
+# Ignore Quarto and HTML outputs
+*.html
+*.nb.html
+*.qmd.cache/
+# Ignore Python cache
+__pycache__/
+*.pyc
