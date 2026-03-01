@@ -6,6 +6,7 @@ This repository contains a Shiny app and supporting files for exploring remittan
 - Interactive Shiny app with filters for year, month, department, and municipality
 - Leaflet maps and summary tables
 - Data normalization and robust joining
+- You can see the app in https://elviscasco.shinyapps.io/remittances/
 
 ## Files
 - `app.R`: Main Shiny app
