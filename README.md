@@ -1,4 +1,4 @@
-# Honduras Remittances Shiny App
+# Honduras Remittances
 
 This repository contains a Shiny app and supporting files for exploring remittance data by department and municipality in Honduras.
 
