@@ -97,6 +97,9 @@ print(
 )
 ```
 
+# Remittances in Honduras: Geospatial Analysis by Department
+
+[Source: Central Bank of Honduras (BCH)](https://www.bch.hn/estadisticas/remesas-familiares)
 
 ```{r}
 # Get Honduras boundaries
@@ -148,6 +151,7 @@ ggplot(honduras_dept_sf) +
   theme(legend.position = "right")
 ```
 
+# Remmitances in Honduras: Geospatial Analysis by Municipality
 
 ```{r}
 # Create static map with ggplot including boundaries and point size = summed Monto
@@ -175,10 +179,12 @@ ggplot() +
   theme_minimal() +
   labs(
     title = "Municipalities: Size by Sum of USD Amount",
-    x = "Longitud",
-    y = "Latitud"
+    caption = "Note: The data was obtained by a query to the Central Bank of Honduras (transparencia@bch.hn)",
+    x = NULL,
+    y = NULL
   ) +
-  coord_sf()
+  coord_sf() +
+  theme(plot.caption = element_text(hjust = 0))
 ```
 
 The reception of remittances in Honduras is highly concentrated in the departments of Francisco Morazán and Cortés, which includes the major cities of Tegucigalpa and San Pedro Sula. This is evident from the larger point size representing the sum of remittances in that area.
@@ -186,3 +192,143 @@ The reception of remittances in Honduras is highly concentrated in the departmen
 The second map highlights the spatial distribution of remittance reception across different municipalities, indicating that certain areas are more reliant on remittances than others.
 
 
+# Business Directory Summary (DEE 2024)
+
+[Source: DEE 2024 Excel file](https://ine.gob.hn/dee/)
+
+```{python}
+import polars as pl
+
+# 1. Read Excel
+df_raw = pl.read_excel("data/BASE-DEE-2024.xlsx")
+
+# First data row contains actual column headers
+new_headers = [str(v) for v in df_raw.row(0)]
+df = df_raw.slice(1).rename(dict(zip(df_raw.columns, new_headers)))
+
+# 2. Group-by summary (count)
+group_cols = [
+    "COD. DEPARTAMENTO",
+    "COD. MUNICIPIO",
+    "CÓDICO ",
+    "TIPO DE EMPRESA",
+    "CÓDIGO GENERAL",
+]
+
+summary = (
+    df
+    .group_by(group_cols)
+    .agg(pl.len().alias("N"))
+    .sort(group_cols)
+    .drop_nulls()
+    .rename({
+        "COD. DEPARTAMENTO": "codDepto",
+        "COD. MUNICIPIO": "codMun",
+        "CÓDICO ": "codDeptoMun",
+        "TIPO DE EMPRESA": "Size",
+        "CÓDIGO GENERAL": "Activity",
+    })
+)
+
+print(f"Summary shape: {summary.shape}")
+print(summary)
+
+# ── 3. Export to CSV ───────────────────────────────────────────
+summary.write_csv("data/summary_dee_2024.csv")
+print("CSV saved to: data/summary_dee_2024.csv")
+```
+
+```{r}
+# Read DEE summary and aggregate total businesses per municipality
+df_dee <- read_csv("data/summary_dee_2024.csv") %>%
+  group_by(codDeptoMun) %>%
+  summarise(N = sum(N, na.rm = TRUE), .groups = "drop")
+
+# Join with municipality coordinates
+df_dee <- df_dee %>%
+  left_join(
+    df_municipios_completo %>% select(codDeptoMun, Departamento, Municipio, lat, lon),
+    by = "codDeptoMun"
+  )
+
+# Map: Business establishments per municipality
+ggplot() +
+  geom_sf(
+    data = honduras_country,
+    fill = "white",
+    color = "black",
+    linewidth = 1) +
+  geom_sf(
+    data = honduras,
+    fill = NA,
+    color = "gray50",
+    linewidth = 0.5) +
+  geom_point(
+    data = df_dee,
+    aes(x = lon, y = lat, size = N),
+    color = "darkgreen",
+    alpha = 0.6) +
+  scale_size_area(
+    max_size = 10,
+    name = "Number of\nEstablishments") +
+  theme_minimal() +
+  labs(
+    title = "Business Establishments by Municipality (DEE 2024)",
+    caption = "Source: INE Honduras - Directorio de Establecimientos Económicos 2024",
+    x = NULL,
+    y = NULL
+  ) +
+  coord_sf() +
+  theme(plot.caption = element_text(hjust = 0))
+```
+
+# Population Density in Honduras: Geospatial Analysis by Department and Municipality
+
+[Source: INE Honduras / UNFPA — Humanitarian Data Exchange (HDX)](https://data.humdata.org/dataset/6203b8df-ef66-4e55-baba-6d8547438a77)
+
+```{r}
+# Read HDX population data (municipality level, 2024 projections)
+df_pop <- read_csv("data/hnd_admpop_adm2_2024.csv") %>%
+  mutate(
+    # Extract the 4-digit code from ADM2_PCODE (e.g., HN0102 -> 0102)
+    codDeptoMun = str_sub(ADM2_PCODE, 3, 6)
+  ) %>%
+  select(ADM1_ES, ADM2_ES, ADM2_PCODE, codDeptoMun, T_TL)
+
+# Join with municipality coordinates
+df_pop <- df_pop %>%
+  left_join(
+    df_municipios_completo %>% select(codDeptoMun, lat, lon),
+    by = "codDeptoMun"
+  )
+
+# Map: Population by municipality
+ggplot() +
+  geom_sf(
+    data = honduras_country,
+    fill = "white",
+    color = "black",
+    linewidth = 1) +
+  geom_sf(
+    data = honduras,
+    fill = NA,
+    color = "gray50",
+    linewidth = 0.5) +
+  geom_point(
+    data = df_pop,
+    aes(x = lon, y = lat, size = T_TL / 1000),
+    color = "darkred",
+    alpha = 0.6) +
+  scale_size_area(
+    max_size = 12,
+    name = "Population\n(thousands)") +
+  theme_minimal() +
+  labs(
+    title = "Population by Municipality (2024 Projections)",
+    caption = "Source: INE Honduras / UNFPA via Humanitarian Data Exchange (HDX)",
+    x = NULL,
+    y = NULL
+  ) +
+  coord_sf() +
+  theme(plot.caption = element_text(hjust = 0))
+```

@@ -1,0 +1,9 @@
+# Shiny Remesas App
+
+This folder contains everything needed to run or deploy the Honduras Remittances Shiny app.
+
+- Place all three files (app.R, Municipios.xlsx, Remesas.xlsx) together in this folder.
+- To run locally: setwd('Shiny_Remesas') and run shiny::runApp('app.R')
+- To deploy: upload all three files to shinyapps.io
+
+See README.md for details.
