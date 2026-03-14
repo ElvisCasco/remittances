@@ -1,0 +1,1235 @@
+---
+title: ""
+subtitle: ""
+author: ""
+date: ""
+execute:
+  message: false
+  warning: false
+  cache: false
+resources:
+  - BSE-logo.png
+format:
+  pdf:
+    fig-pos: "H"
+    include-in-header: 
+      - text: |
+          \usepackage{graphicx}
+          \usepackage{float}
+          \usepackage{titling}
+          \pretitle{\begin{center}\LARGE}
+          \posttitle{\end{center}}
+          \preauthor{\begin{center}}
+          \postauthor{\end{center}}
+          \predate{\begin{center}}
+          \postdate{\end{center}}
+---
+
+\begin{titlepage}
+\centering
+
+\vspace*{2cm}
+
+\includegraphics[width=0.35\textwidth]{BSE-logo.png}
+
+\vspace{1.5cm}
+
+{\Large \textbf{Barcelona School of Economics}}\\[1.5cm]
+
+{\large \textbf{Course:} E23DM017 Geospatial Data Science}\\[0.8cm]
+
+{\large \textbf{Term:} 2}\\[0.8cm]
+
+{\large \textbf{Assignment:} Project}\\[2cm]
+
+{\large \textbf{Authors:}}\\[0.5cm]
+Ceyda Ozden\\
+Xiaoyan Wang\\
+Lijing Xie\\
+Elvis Casco\\[2cm]
+
+{\large \textbf{Date:} March, 2026}
+
+\vfill
+
+\end{titlepage}
+\newpage
+
+\tableofcontents
+\newpage
+
+## Setup {.unnumbered}
+
+```{r}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE
+)
+
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(readr)
+  library(dplyr)
+  library(ggplot2)
+  library(viridis)
+  library(ggrepel)
+  library(kableExtra)
+  library(scales)
+  library(patchwork)
+})
+
+df <- read_csv("remesas_year_munic.csv", show_col_types = FALSE)
+
+# Department code-to-name mapping (from OCHA admin boundaries)
+dept_names <- tibble(
+  code = 1:18,
+  dept_name = c(
+    "Atlántida", "Colón", "Comayagua", "Copán",
+    "Cortés", "Choluteca", "El Paraíso",
+    "Francisco Morazán", "Gracias a Dios", "Intibucá",
+    "Islas de la Bahía", "La Paz", "Lempira",
+    "Ocotepeque", "Olancho", "Santa Bárbara",
+    "Valle", "Yoro"
+  )
+)
+
+df <- df |>
+  left_join(dept_names, by = c("codDeptoNac" = "code")) |>
+  rename(dept_born = dept_name) |>
+  left_join(dept_names, by = c("codDepto" = "code")) |>
+  rename(dept_recv = dept_name)
+```
+
+## Introduction
+
+Internal migration is one of the most important spatial dynamics shaping
+economic development in many developing countries. Large regional
+inequalities in access to employment opportunities, infrastructure,
+education, and public services often lead individuals to move from
+economically disadvantaged regions toward a limited number of urban
+centers.
+
+Honduras represents a particularly relevant case for analyzing these
+dynamics. Economic activity in the country is highly concentrated in a
+few urban centers, most notably Tegucigalpa (the political and
+administrative capital), and San Pedro Sula (the country's primary
+industrial hub). At the same time, many municipalities face limited
+economic opportunities and weaker local labour markets, which creates
+strong incentives for internal migration toward these cities.
+
+In addition to internal migration, Honduras is also characterized by
+substantial international migration. Many Hondurans migrate abroad,
+particularly to the United States, and send financial transfers known as
+remittances to relatives who remain in the country. These remittances
+represent an important source of household income and play a significant
+role in the Honduran economy.
+
+This project examines how remittance flows relate to internal migration
+patterns across Honduran municipalities. Specifically, the analysis
+investigates whether remittances are spatially concentrated in major
+urban centers and whether this spatial concentration reflects internal
+migration toward those cities.
+
+Using remittance data between 2020 and 2024 together with geographic and
+municipality-level economic data, the project combines spatial analysis
+and econometric modelling to identify the main origins and destinations
+of migrants and to understand which structural factors shape migration
+patterns across the country.
+
+### Research Question
+
+The analysis centers on the following research question:
+
+*To what extent are remittance flows associated with internal migration
+toward major urban centers in Honduras?*
+
+The main hypothesis is that when remittances are received in
+municipalities different from the receiver's place of birth (particularly
+in major cities such as Tegucigalpa and San Pedro Sula) this reflects
+internal migration toward these urban centers.
+
+More specifically, the analysis tests three related hypotheses:
+
+-   A significant share of remittance beneficiaries reside in
+    municipalities different from their place of birth.
+
+-   A substantial portion of these beneficiaries are located in the two
+    main urban centers of Honduras.
+
+-   Structural characteristics of municipalities, such as geographic
+    distance to major cities, population size, and local economic
+    activity, influence migration patterns.
+
+## Data
+
+The Central Bank of Honduras provided a unique dataset of remittance transactions that includes information on the birth and receipt municipalities of remittance beneficiaries. As this information is confidential, it was only available for research purposes, and the dataset is restricted; we processed the information in a way that ensures confidentiality and the data analysis was made in an aggregated manner. The processed dataset allows us to identify internal migration patterns by comparing the location where remittances are received with the location where the beneficiary was born.
+
+The dataset `remesas_year_munic.csv` contains individual-level
+remittance records aggregated by origin (birth) and destination
+(receipt) municipality in Honduras, spanning 2020–2024. Each row
+represents a unique combination of:
+
+| Column | Description |
+|------------------------------------|------------------------------------|
+| `Year` | Year of remittance receipt |
+| `codDeptoNac` | Department code where the person **was born** |
+| `codMunNac` | Municipality code where the person **was born** |
+| `codDepto` | Department code where the person **received** the remittance |
+| `codMun` | Municipality code where the person **received** the remittance |
+| `in_city` | **1** if the person received the remittance in the **same municipality** where they were born |
+| `capital` | **1** if the person received the remittance in **Tegucigalpa (Distrito Central)** but was **not** born there |
+| `sps` | **1** if the person received the remittance in **San Pedro Sula** but was **not** born there |
+| `other_main` | **1** if the person received the remittance in a city **different from Tegucigalpa or San Pedro Sula** and was **not** born there |
+| `N` | Annual cumulative beneficiary count (sum of monthly counts) |
+| `USD` | Total remittance amount in US dollars |
+
+As the source database contains monthly transaction records, we aggregate the data to the yearly level for each origin-destination municipality pair by summing monthly beneficiary counts. This allows us to analyze migration patterns over time while ensuring that the data remains manageable and that confidentiality is preserved. Therefore, the yearly value of `N` is a cumulative annual count (person-month style measure), not the number of unique individuals who received remittances at least once during the year.
+
+We also merge this remittance-based migration data with geographic information on Honduran municipalities, including their coordinates and population size [Source: INE Honduras / UNFPA — Humanitarian Data Exchange (HDX)](https://data.humdata.org/dataset/6203b8df-ef66-4e55-baba-6d8547438a77), as well as economic data from the *Directorio Estadístico de Empresas* (DEE 2024), which provides the number of registered firms in each municipality [Source: DEE 2024 Excel file](https://ine.gob.hn/dee/). This enriched dataset allows us to analyze the spatial distribution of remittance reception and its relationship with economic conditions across the country.
+
+### Interpretation as a Migration Proxy
+
+When a person was born in one municipality but receives
+remittances in a different municipality, this strongly suggests that
+the person has migrated internally from their birth municipality to
+the receipt municipality. The flags `capital`, `sps`, and `other_main`
+capture this migration signal:
+
+-   `capital = 1`: Internal migrants who moved to Tegucigalpa
+    (department 8, municipality 1 — Francisco Morazán, Distrito
+    Central).
+-   `sps = 1`: Internal migrants who moved to San Pedro Sula
+    (department 5, municipality 1 — Cortés, San Pedro Sula).
+-   `other_main = 1`: Internal migrants who moved to **other
+    cities** that are neither Tegucigalpa nor San Pedro Sula.
+
+This allows us to study rural-to-urban migration patterns by
+analysing which departments and municipalities export people toward the
+two main economic hubs of Honduras.
+
+## Methodological Approach
+
+The analysis combines spatial data visualization and econometric
+modelling to investigate internal migration patterns in Honduras.
+
+First, descriptive spatial analysis is used to visualize the geographic
+distribution of remittance beneficiaries and identify migration patterns
+across municipalities. Maps and graphical visualizations help highlight
+the spatial concentration of migrants in major cities.
+
+Second, econometric models are estimated to analyze the determinants of
+migration. The empirical framework follows the gravity model of
+migration, which predicts that migration flows increase with the size of
+locations and decrease with geographic distance.
+
+The econometric analysis includes three specifications:
+
+-   Log-linear OLS regressions,\
+-   OLS models with department fixed effects, and\
+-   Poisson pseudo–maximum likelihood (PPML) regressions appropriate for
+    count data.
+
+These models allow us to examine how factors such as distance to major
+cities, municipality population size, and local economic activity are
+associated with migration flows.
+
+## Spatial Motivation and Empirical Framework
+
+Internal migration can be interpreted through a spatial interaction
+framework in which migration flows depend on the size of the origin, the
+attractiveness of the destination, and geographic frictions.
+
+A stylized gravity-type relationship can be written as
+
+$$
+M_{ij} = A \cdot Pop_i^{\alpha} \cdot Attr_j^{\beta} \cdot Dist_{ij}^{-\gamma}
+$$
+
+$M\_{ij}$ denotes migration from origin municipality (i) to
+destination city (j), $(Pop_i)$ captures the size of the origin, $(Attr_j)$
+represents the attractiveness of the destination, and $(Dist\_{ij})$
+reflects geographic migration costs.
+
+In the spatial-economics framework discussed in class, location
+connectivity is often summarized by a market-access measure
+
+$$
+MA_i = \sum_{n \in S} d_{ni}^{-\theta} L_n
+$$
+
+$L_n$ denotes population in location (n), $d\_{ni}$ represents
+bilateral distance or migration costs, and $\theta$ captures the
+elasticity of spatial frictions.
+
+Our baseline municipality-level specification is
+
+$$
+\log(1 + Mig_i) = \beta_0 + \beta_1 DistTegu_i + \beta_2 DistSPS_i + \beta_3 \log(Pop_i) + \beta_4 \log(Firms_i) + \varepsilon_i
+$$
+
+where $Mig_i$ is the number of migrant beneficiaries born in
+municipality (i) and receiving remittances in Tegucigalpa or San Pedro
+Sula.
+
+Motivated by this framework, the empirical analysis examines whether
+distance to the two main Honduran cities, Tegucigalpa and San Pedro
+Sula, together with municipality population and economic activity, helps
+explain outward migration patterns. Because migration is observed as a
+count variable with many zeros, we also estimate a Poisson model:
+
+$$
+\mathbb{E}[Mig_i \mid X_i] = \exp(X_i' \beta)
+$$
+
+which is more appropriate for discrete migration flows than a purely
+log-linear specification.
+
+## Descriptive Evidence
+
+### Migration composition over time
+
+How many remittance beneficiaries in Tegucigalpa and San Pedro Sula were
+not born there? This section quantifies the yearly volume of
+"migrant" beneficiaries flowing into the two main cities versus those
+who stayed in their birth municipality.
+
+```{r}
+yearly <- df |>
+  group_by(Year) |>
+  summarise(
+    total_N     = sum(N),
+    total_USD   = sum(USD),
+    in_city_N   = sum(N[in_city == 1]),
+    capital_N   = sum(N[capital == 1]),
+    sps_N       = sum(N[sps == 1]),
+    other_N     = sum(N[other_main == 1]),
+    capital_USD = sum(USD[capital == 1]),
+    sps_USD     = sum(USD[sps == 1]),
+    .groups = "drop"
+  ) |>
+  mutate(
+    capital_pct = round(capital_N / total_N * 100, 1),
+    sps_pct     = round(sps_N / total_N * 100, 1),
+    other_pct   = round(other_N / total_N * 100, 1),
+    in_city_pct = round(in_city_N / total_N * 100, 1)
+  )
+
+yearly_case <- yearly |>
+  transmute(
+    Year,
+    `No migration` = in_city_N,
+    `Tegucigalpa` = capital_N,
+    `San Pedro Sula` = sps_N,
+    `Other cities` = other_N
+  ) |>
+  pivot_longer(-Year, names_to = "case", values_to = "N") |>
+  mutate(
+    Year = factor(Year),
+    case = factor(case, levels = c("No migration", "Tegucigalpa", "San Pedro Sula", "Other cities"))
+  )
+
+ggplot(yearly_case, aes(x = case, y = N, fill = Year)) +
+  geom_col(position = position_dodge(width = 0.82), width = 0.75) +
+  scale_y_continuous(labels = comma) +
+  labs(
+    title = "Grouped Bars by Year Across Migration Categories",
+    x = "Migration category",
+    y = "Beneficiaries (N)",
+    fill = "Year"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    legend.text = element_text(size = 7),
+    axis.text.x = element_text(angle = 20, hjust = 1)
+  )
+```
+
+The bar chart above is fully aggregated by migration category. For each category (No migration, Tegucigalpa, San Pedro Sula, and Other cities), bars are shown side by side by year, which allows direct year-over-year comparisons within each category. This visualization highlights the relative size of migrant beneficiaries in each category and how they evolve over time. In this case,the "Tegucigalpa" category (people receiving remittances in Tegucigalpa but wasn't born there) dominates the total, but there is a significant and growing share of beneficiaries who receive remittances in San Pedro Sula and Other cities, indicating substantial internal migration toward these urban centers.
+
+### Spatial distribution of migration intensity
+
+We create maps to show where remittance beneficiaries are located and how this relates to their place of birth.
+
+In the first place, we can see that the concentration of the population in Honduras is in the departments of Francisco Morazán and Cortés, which include the major cities of Tegucigalpa and San Pedro Sula.
+
+```{r fig.width=10, fig.height=6.8}
+# Read population data (municipality level, 2024 projections)
+mun_map <- read_csv("data/municipality_data.csv", show_col_types = FALSE)
+honduras_country <- sf::st_as_sf(readRDS("Shiny_Remesas/honduras_country.rds"))
+honduras_states <- sf::st_as_sf(readRDS("Shiny_Remesas/honduras_states.rds"))
+
+df_pop <- read_csv("data/hnd_admpop_adm2_2024.csv") %>%
+  mutate(
+    # Extract the 4-digit code from ADM2_PCODE (e.g., HN0102 -> 0102)
+    codDeptoMun = str_sub(ADM2_PCODE, 3, 6)
+  ) %>%
+  select(ADM1_ES, ADM2_ES, ADM2_PCODE, codDeptoMun, T_TL)
+
+# Join with municipality coordinates
+df_pop <- df_pop %>%
+  left_join(
+    mun_map %>%
+      mutate(codDeptoMun = sprintf("%02d%02d", codDepto, codMun)) %>%
+      select(codDeptoMun, lat, lon),
+    by = "codDeptoMun"
+  )
+
+# Map: Population by municipality
+ggplot() +
+  geom_sf(
+    data = honduras_country,
+    fill = "white",
+    color = "black",
+    linewidth = 1) +
+  geom_sf(
+    data = honduras_states,
+    fill = NA,
+    color = "gray50",
+    linewidth = 0.5) +
+  geom_point(
+    data = df_pop,
+    aes(x = lon, y = lat, size = T_TL / 1000),
+    color = "darkred",
+    alpha = 0.6) +
+  scale_size_area(
+    max_size = 12,
+    name = "Population\n(thousands)") +
+  theme_minimal() +
+  labs(
+    title = "Population by Municipality (2024 Projections)",
+    caption = "Source: INE Honduras / UNFPA via Humanitarian Data Exchange (HDX)",
+    x = NULL,
+    y = NULL
+  ) +
+  coord_sf() +
+  theme(
+    plot.caption = element_text(hjust = 0),
+    panel.grid = element_blank(),
+    legend.position = "bottom",
+    legend.box = "horizontal",
+    legend.direction = "horizontal",
+    legend.title.align = 0.5,
+    plot.margin = margin(t = 6, r = 6, b = 14, l = 6)
+  )
+```
+
+The next map shows the spatial distribution of migration intensity across Honduran municipalities. Larger circles correspond to more populous municipalities, while darker colors indicate higher outward migration rates toward Tegucigalpa and San Pedro Sula. This visualization highlights substantial spatial heterogeneity in migration patterns across the country and high concentration in Tegucigalpa and municipalities of Cortés, predominantly San Pedro Sula.
+
+```{r fig.width=10, fig.height=6.8}
+mun_map <- read_csv("data/municipality_data.csv", show_col_types = FALSE)
+honduras_country <- sf::st_as_sf(readRDS("Shiny_Remesas/honduras_country.rds"))
+honduras_states <- sf::st_as_sf(readRDS("Shiny_Remesas/honduras_states.rds"))
+
+map_mig <- df |>
+  filter(capital == 1 | sps == 1) |>
+  group_by(codDeptoNac, codMunNac) |>
+  summarise(mig_N = sum(N), .groups = "drop")
+
+map_df1 <- mun_map |>
+  select(codDepto, codMun, ADM1_ES, ADM2_ES, lon, lat, T_TL) |>
+  left_join(
+    map_mig,
+    by = c("codDepto" = "codDeptoNac", "codMun" = "codMunNac")
+  ) |>
+  mutate(
+    mig_N = replace_na(mig_N, 0),
+    mig_rate_1k = if_else(T_TL > 0, mig_N / T_TL * 1000, 0)
+  )
+
+city_points <- mun_map |>
+  filter((codDepto == 8 & codMun == 1) | (codDepto == 5 & codMun == 1)) |>
+  transmute(lon, lat)
+
+ggplot() +
+  geom_sf(data = honduras_country, fill = "grey98", color = "grey35", linewidth = 0.4) +
+  geom_sf(data = honduras_states, fill = NA, color = "grey70", linewidth = 0.2) +
+  geom_point(
+    data = map_df1,
+    aes(x = lon, y = lat, size = T_TL / 1000, color = mig_rate_1k),
+    alpha = 0.75
+  ) +
+  geom_point(
+    data = city_points,
+    aes(x = lon, y = lat),
+    shape = 21,
+    size = 3,
+    fill = "white",
+    color = "black",
+    stroke = 0.7
+  ) +
+  scale_size_area(
+    max_size = 11,
+    labels = comma,
+    name = "Population (thousands)",
+    guide = guide_legend(order = 1)
+  ) +
+  scale_color_viridis_c(
+    option = "plasma",
+    trans = "sqrt",
+    breaks = breaks_pretty(n = 4),
+    labels = label_number(accuracy = 0.1),
+    name = "Migrants per 1,000 residents",
+    na.value = "grey80",
+    guide = guide_colorbar(
+      order = 2,
+      direction = "horizontal",
+      barwidth = grid::unit(7.5, "cm"),
+      barheight = grid::unit(0.35, "cm"),
+      title.position = "top",
+      label.position = "bottom",
+      ticks = FALSE
+    )
+  ) +
+  coord_sf() +
+  labs(
+    title = "Spatial Distribution of Migration Intensity",
+    subtitle = "Bubble size indicates population; color indicates outward migrants to Tegucigalpa + SPS per 1,000 residents",
+    x = NULL,
+    y = NULL,
+    caption = "Source: BCH remittance aggregates; municipality boundaries from Shiny_Remesas RDS files"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank(),
+    plot.caption = element_text(hjust = 0),
+    legend.position = "bottom",
+    legend.box = "vertical",
+    legend.direction = "horizontal",
+    legend.title.align = 0.5,
+    plot.margin = margin(t = 6, r = 6, b = 14, l = 6)
+  )
+```
+
+### Spatial distribution of migration flows to main cities
+
+```{r fig.width=10, fig.height=7.4}
+mun_map <- read_csv("data/municipality_data.csv", show_col_types = FALSE)
+honduras_country <- sf::st_as_sf(readRDS("Shiny_Remesas/honduras_country.rds"))
+honduras_states <- sf::st_as_sf(readRDS("Shiny_Remesas/honduras_states.rds"))
+
+map_cap <- df |>
+  filter(capital == 1) |>
+  group_by(codDeptoNac, codMunNac) |>
+  summarise(mig_cap_N = sum(N), .groups = "drop")
+
+map_sps <- df |>
+  filter(sps == 1) |>
+  group_by(codDeptoNac, codMunNac) |>
+  summarise(mig_sps_N = sum(N), .groups = "drop")
+
+map_df2 <- mun_map |>
+  select(codDepto, codMun, ADM1_ES, ADM2_ES, lon, lat) |>
+  left_join(
+    map_cap,
+    by = c("codDepto" = "codDeptoNac", "codMun" = "codMunNac")
+  ) |>
+  left_join(
+    map_sps,
+    by = c("codDepto" = "codDeptoNac", "codMun" = "codMunNac")
+  ) |>
+  mutate(
+    mig_cap_N = replace_na(mig_cap_N, 0),
+    mig_sps_N = replace_na(mig_sps_N, 0),
+    total_main_city_mig = mig_cap_N + mig_sps_N,
+    dominant_city = if_else(mig_cap_N >= mig_sps_N, "Tegucigalpa", "San Pedro Sula")
+  )
+
+map_df2_plot <- map_df2 |>
+  filter(total_main_city_mig > 0) |>
+  mutate(dominant_city = factor(dominant_city, levels = c("Tegucigalpa", "San Pedro Sula")))
+
+ggplot() +
+  geom_sf(data = honduras_country, fill = "grey98", color = "grey35", linewidth = 0.45) +
+  geom_sf(data = honduras_states, fill = NA, color = "grey70", linewidth = 0.25) +
+  geom_point(
+    data = map_df2_plot,
+    aes(x = lon, y = lat, size = total_main_city_mig, color = dominant_city),
+    alpha = 0.5
+  ) +
+  scale_size_area(
+    max_size = 5.5,
+    labels = comma,
+    name = "Migrants to both cities"
+  ) +
+  scale_color_manual(
+    values = c("Tegucigalpa" = "#e74c3c", "San Pedro Sula" = "#3498db"),
+    name = "Dominant destination"
+  ) +
+  labs(
+    title = "Spatial Distribution of Migration Flows to Main Cities",
+    subtitle = "Department boundaries shown; bubble size indicates total migrants and color indicates dominant destination city",
+    x = NULL,
+    y = NULL
+  ) +
+  coord_sf(expand = FALSE) +
+  theme_minimal() +
+  guides(
+    color = guide_legend(order = 1),
+    size = guide_legend(order = 2)
+  ) +
+  theme(
+    panel.grid = element_blank(),
+    legend.position = "bottom",
+    legend.box = "vertical",
+    legend.direction = "horizontal",
+    plot.margin = margin(t = 6, r = 6, b = 16, l = 6),
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 10)
+  )
+```
+
+This map shows the spatial distribution of migrant outflows toward
+Honduras's two main cities. Point size reflects the total number of
+migrant beneficiaries moving to Tegucigalpa or San Pedro Sula, while
+color identifies the dominant destination city: red for Tegucigalpa and
+blue for San Pedro Sula. The map reveals clear geographic differences in
+destination patterns across municipalities, detecting the predominance of Tegucigalpa in migration patterns and San Pedro Sula in some of the municipalities near that city.
+
+### Comparison of main destinations
+
+Side-by-side comparison of the two main cities as migration
+destinations.
+
+```{r}
+comp <- yearly |>
+  select(Year, capital_N, sps_N, capital_USD, sps_USD)
+
+comp_long_n <- comp |>
+  select(Year, capital_N, sps_N) |>
+  pivot_longer(-Year, names_to = "city", values_to = "N") |>
+  mutate(city = ifelse(city == "capital_N", "Tegucigalpa", "San Pedro Sula"))
+
+comp_long_usd <- comp |>
+  select(Year, capital_USD, sps_USD) |>
+  pivot_longer(-Year, names_to = "city", values_to = "USD") |>
+  mutate(city = ifelse(city == "capital_USD", "Tegucigalpa", "San Pedro Sula"))
+
+fig1 <- ggplot(comp_long_n, aes(x = factor(Year), y = N, fill = city)) +
+  geom_col(position = "dodge") +
+  scale_fill_manual(values = c("Tegucigalpa" = "#e74c3c",
+                                "San Pedro Sula" = "#3498db")) +
+  scale_y_continuous(
+    labels = label_number(scale = 1e-6, accuracy = 0.1, suffix = "M")
+  ) +
+  labs(title = "Migrant Beneficiaries", x = NULL, y = "Beneficiaries (millions)",
+       fill = NULL) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(size = 10),
+    axis.title.y = element_text(size = 8),
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 7),
+    axis.text.y = element_text(size = 7),
+    legend.text = element_text(size = 7)
+  )
+
+fig2 <- ggplot(comp_long_usd, aes(x = factor(Year), y = USD, fill = city)) +
+  geom_col(position = "dodge") +
+  scale_fill_manual(values = c("Tegucigalpa" = "#e74c3c",
+                                "San Pedro Sula" = "#3498db")) +
+  scale_y_continuous(
+    labels = label_number(scale = 1e-6, accuracy = 0.1, suffix = "M")
+  ) +
+  labs(title = "Remittance Volume (USD)", x = NULL, y = "USD (millions)",
+       fill = NULL) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(size = 10),
+    axis.title.y = element_text(size = 8),
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 7),
+    axis.text.y = element_text(size = 7),
+    legend.text = element_text(size = 7)
+  )
+
+fig1 + fig2 + plot_layout(guides = "collect") &
+  theme(legend.position = "bottom")
+```
+
+The left panel compares the number of migrant beneficiaries arriving
+in each city, while the right panel compares the USD volume of
+remittances they receive. If San Pedro Sula has fewer migrants but comparable USD
+volume, it would mean that migrants in that city receive larger per-capita
+remittances — possibly reflecting higher wages in the maquiladora sector
+and correspondingly higher transfers from relatives abroad. Conversely,
+if Tegucigalpa dominates both panels, it confirms its role as the
+primary internal migration destination; this pattern is more evident after 2022.
+
+### Migration pressure across departments
+
+To analyze origins For each department, we compute the ratio of people born there
+who receive remittances in Tegucigalpa or SPS (migrants) to those who
+receive remittances in the same municipality (stayers). A higher
+ratio signals stronger outward migration pressure toward the two main
+cities.
+
+```{r}
+# Stayers: people who receive in the same municipality they were born
+stayers <- df |>
+  filter(in_city == 1) |>
+  group_by(codDeptoNac, dept_born) |>
+  summarise(stayers_N = sum(N), .groups = "drop")
+
+# Migrants to capital
+mig_cap <- df |>
+  filter(capital == 1) |>
+  group_by(codDeptoNac, dept_born) |>
+  summarise(to_capital_N = sum(N), .groups = "drop")
+
+# Migrants to SPS
+mig_sps <- df |>
+  filter(sps == 1) |>
+  group_by(codDeptoNac, dept_born) |>
+  summarise(to_sps_N = sum(N), .groups = "drop")
+
+pressure <- stayers |>
+  full_join(mig_cap, by = c("codDeptoNac", "dept_born")) |>
+  full_join(mig_sps, by = c("codDeptoNac", "dept_born")) |>
+  replace_na(list(stayers_N = 0, to_capital_N = 0, to_sps_N = 0)) |>
+  mutate(
+    to_cities_N = to_capital_N + to_sps_N,
+    migration_ratio = round(to_cities_N / stayers_N, 3)
+  ) |>
+  arrange(desc(migration_ratio))
+
+ggplot(pressure, aes(x = reorder(dept_born, -migration_ratio),
+                     y = migration_ratio, fill = migration_ratio)) +
+  geom_col() +
+  scale_fill_gradient(low = "#fee0d2", high = "#de2d26", name = "Ratio") +
+  labs(title = "Migration Pressure Ratio (Migrants to Tegu+SPS / Stayers)",
+       x = "Birth Department", y = "Migration ratio") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 7))
+```
+
+The bar chart ranks all 18 departments by their migration pressure
+ratio: the total number of people born in that department who now live
+in Tegucigalpa or SPS, divided by the number who stayed in their birth
+municipality. A ratio of 0.10 means that for every 100 stayers there are
+10 migrants to the two main cities. Departments at the left end of the
+chart face the strongest demographic drain toward the urban centres.
+This metric is informative for regional development policy because it
+identifies where outflows are most acute relative to the local
+population base.
+
+### Origin structure of migrants
+
+Drill down to the municipality level: which specific municipalities
+contribute the most migrants to Tegucigalpa and San Pedro Sula?
+
+```{r}
+cap_migrants <- df |> filter(capital == 1)
+
+cap_mun <- cap_migrants |>
+  filter(codDeptoNac != 8) |>
+  group_by(codDeptoNac, codMunNac, dept_born) |>
+  summarise(N = sum(N), USD = sum(USD), .groups = "drop") |>
+  slice_max(N, n = 20) |>
+  mutate(origin = paste0(dept_born, " (D", codDeptoNac, "-M", codMunNac, ")"))
+
+ggplot(cap_mun, aes(x = reorder(origin, -N), y = N)) +
+  geom_col(fill = "grey60", color = "grey35") +
+  scale_y_continuous(labels = comma) +
+  labs(
+    title = "Top 20 Origin Municipalities for Migrants in Tegucigalpa",
+    subtitle = "(excluding Francisco Morazán)",
+    x = "Origin municipality",
+    y = "Beneficiaries"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 60, hjust = 1, size = 5),
+    legend.position = "none"
+  )
+```
+
+This chart drills down from the department level to the municipality
+level, showing the top 20 origin municipalities for migrants in
+Tegucigalpa. People born in Francisco Morazán (department 8) are
+excluded because they are locals, not migrants. The remaining
+municipalities are labelled by their department name and code pair
+(e.g., "Olancho (D15-M1)" for the cabecera of Olancho). Municipalities
+that appear at the top of this list are the ones losing the most people
+to the capital — they are prime candidates for targeted local
+development interventions.
+
+## Econometric Results
+
+This section builds an econometric model to explain why people
+migrate from their birth municipality to Tegucigalpa or San Pedro Sula.
+The unit of analysis is the `origin municipality` (where the person
+was born). We test whether the following structural characteristics of
+the birth municipality predict outward migration to the two main cities:
+
+-   Distance to Tegucigalpa (km): Computed as the great-circle
+    distance from each municipality centroid to the Distrito Central
+    centroid.
+-   Distance to San Pedro Sula (km): Same, but to San Pedro Sula.
+-   Population (log): Total population of the birth municipality
+    (2024 estimate), capturing urbanisation and labour-market size.
+-   Number of firms (log): Total registered establishments in the
+    birth municipality from the *Directorio Estadístico de Empresas*
+    (DEE 2024), proxying local economic opportunity.
+
+The dependent variable is the number of migrant remittance beneficiaries who were born in municipality $i$ but receive their
+remittance in Tegucigalpa or SPS, aggregated across 2020–2025.
+
+### Data preparation
+
+The econometric dataset is constructed by merging the remittance-based
+migration data with municipality-level information on population,
+geographic coordinates, and firm counts. Distances from each
+municipality to Tegucigalpa and San Pedro Sula are calculated using
+great-circle distances between municipality centroids.
+
+Migration outcomes are measured as the number of remittance
+beneficiaries born in municipality (i) who receive remittances in
+Tegucigalpa or San Pedro Sula. Additional variables capture the total
+population of the municipality and the number of registered firms, which
+proxy for local economic opportunities.
+
+```{r}
+library(geosphere)
+library(fixest)
+library(modelsummary)
+
+
+mun_data <- read_csv(
+  "data/municipality_data.csv", 
+  show_col_types = FALSE)
+
+
+tegu_coords <- mun_data |>
+  filter(codDepto == 8, codMun == 1) |>
+  select(lon, lat) |>
+  as.matrix()
+
+sps_coords <- mun_data |>
+  filter(codDepto == 5, codMun == 1) |>
+  select(lon, lat) |>
+  as.matrix()
+
+mun_data <- mun_data |>
+  rowwise() |>
+  mutate(
+    dist_tegu_km = distHaversine(c(lon, lat), tegu_coords) / 1000,
+    dist_sps_km  = distHaversine(c(lon, lat), sps_coords)  / 1000
+  ) |>
+  ungroup()
+
+
+firms <- read_csv("data/summary_dee_2024.csv", show_col_types = FALSE) |>
+  mutate(codDepto = as.numeric(codDepto), codMun = as.numeric(codMun)) |>
+  group_by(codDepto, codMun) |>
+  summarise(total_firms = sum(N), .groups = "drop")
+
+mun_data <- mun_data |>
+  left_join(firms, by = c("codDepto", "codMun")) |>
+  replace_na(list(total_firms = 0))
+
+
+# Aggregate migrants from each birth municipality to Tegu and to SPS
+mig <- df |>
+  filter(capital == 1 | sps == 1) |>
+  group_by(codDeptoNac, codMunNac) |>
+  summarise(
+    mig_N   = sum(N),
+    mig_USD = sum(USD),
+    .groups = "drop"
+  )
+
+mig_cap <- df |>
+  filter(capital == 1) |>
+  group_by(codDeptoNac, codMunNac) |>
+  summarise(mig_cap_N = sum(N), .groups = "drop")
+
+mig_sps <- df |>
+  filter(sps == 1) |>
+  group_by(codDeptoNac, codMunNac) |>
+  summarise(mig_sps_N = sum(N), .groups = "drop")
+
+
+econ <- mun_data |>
+  left_join(
+    mig, 
+    by = c("codDepto" = "codDeptoNac", "codMun" = "codMunNac")) |>
+  left_join(
+    mig_cap, 
+    by = c("codDepto" = "codDeptoNac", "codMun" = "codMunNac")) |>
+  left_join(
+    mig_sps, 
+    by = c("codDepto" = "codDeptoNac", "codMun" = "codMunNac")) |>
+  replace_na(list(mig_N = 0, mig_USD = 0, mig_cap_N = 0, mig_sps_N = 0)) |>
+  mutate(
+    log_pop       = log(T_TL + 1),
+    log_firms     = log(total_firms + 1),
+    log_mig       = log(mig_N + 1),
+    log_mig_cap   = log(mig_cap_N + 1),
+    log_mig_sps   = log(mig_sps_N + 1),
+    mig_rate      = mig_N / T_TL,
+    mig_cap_rate  = mig_cap_N / T_TL,
+    mig_sps_rate  = mig_sps_N / T_TL,
+    dist_min_km   = pmin(dist_tegu_km, dist_sps_km)
+  )
+
+```
+
+### Descriptive statistics
+
+```{r}
+econ |>
+  select(
+    `Pop. (2024)` = T_TL,
+    `Firms (DEE)` = total_firms,
+    `Dist. Tegucigalpa (km)` = dist_tegu_km,
+    `Dist. SPS (km)` = dist_sps_km,
+    `Min dist. to city (km)` = dist_min_km,
+    `Migrants (N)` = mig_N,
+    `Migr. to Tegu (N)` = mig_cap_N,
+    `Migr. to SPS (N)` = mig_sps_N,
+    `Mig. rate (N/pop)` = mig_rate
+  ) |>
+  pivot_longer(everything(), names_to = "Variable", values_to = "value") |>
+  group_by(Variable) |>
+  summarise(
+    Mean   = round(mean(value, na.rm = TRUE), 2),
+    SD     = round(sd(value, na.rm = TRUE), 2),
+    Min    = round(min(value, na.rm = TRUE), 2),
+    Median = round(median(value, na.rm = TRUE), 2),
+    Max    = round(max(value, na.rm = TRUE), 2),
+    .groups = "drop"
+  ) |>
+  kbl(booktabs = TRUE) |>
+  kable_styling(latex_options = c("striped", "hold_position"), font_size = 9)
+```
+
+The descriptive statistics highlight substantial heterogeneity across
+Honduras's 298 municipalities. The average municipality has roughly
+33,000 inhabitants, but the standard deviation is large — reflecting the
+dominance of Tegucigalpa and San Pedro Sula. Firm counts follow a
+similarly skewed distribution: many rural municipalities have very few
+registered establishments, while the two main cities concentrate the
+bulk of economic activity. Average distance to Tegucigalpa and SPS is on
+the order of 100–200 km, but some eastern municipalities (Gracias a
+Dios, Olancho) exceed 300 km.
+
+The migration rate (migrant beneficiaries divided by population)
+captures the intensity of outward migration independent of
+municipality size. A high migration rate signals that a disproportionate
+share of the municipality's population has relocated to one of the two
+main cities — a classic indicator of "push" dynamics where limited local
+economic opportunity drives people toward urban labour markets (Harris &
+Todaro, 1970; Sjaastad, 1962).
+
+### OLS results
+
+We estimate several specifications to understand which
+municipality-level factors predict outward migration to the main cities.
+The econometric framework draws on the gravity model of migration
+(Ravenstein, 1885; Zipf, 1946), which posits that migration flows
+between two locations increase with the "mass" (population, economic
+size) of origin and destination and decrease with distance. Following
+more recent formulations (Anderson, 2011; Head & Mayer, 2014), we
+estimate log-linear specifications and supplement them with Poisson
+pseudo-maximum likelihood (PPML) models (Silva & Tenreyro, 2006).
+
+```{r}
+
+m1 <- feols(
+  log_mig ~ dist_tegu_km + dist_sps_km + log_pop + log_firms, 
+  data = econ)
+
+
+m2 <- feols(
+  log_mig ~ dist_tegu_km + dist_sps_km + log_pop + log_firms | ADM1_ES,
+  data = econ)
+
+
+m3 <- feols(
+  log_mig_cap ~ dist_tegu_km + log_pop + log_firms, 
+  data = econ)
+
+
+m4 <- feols(log_mig_sps ~ dist_sps_km + log_pop + log_firms, data = econ)
+
+
+m5 <- feols(mig_rate ~ dist_min_km + log_pop + log_firms, data = econ)
+
+
+m6 <- feols(mig_rate ~ dist_min_km + log_pop + log_firms | ADM1_ES, data = econ)
+
+modelsummary(
+  list(
+    "Log(Mig)" = m1,
+    "Log(Mig) FE" = m2,
+    "Log(→Tegu)" = m3,
+    "Log(→SPS)" = m4,
+    "Mig.Rate" = m5,
+    "Mig.Rate FE" = m6
+  ),
+  stars = c("*" = 0.10, "**" = 0.05, "***" = 0.01),
+  gof_map = c("nobs", "r.squared", "adj.r.squared", "within.r.squared", "FE: ADM1_ES"),
+  title = "Determinants of Internal Migration from Birth Municipality to Main Cities",
+  notes = "Unit of observation: municipality. Dependent variable: total 2020–2025 migrant beneficiaries."
+)
+```
+
+Interpretation of coefficients:
+
+-   Models 1–2 (Log Migrants to both cities): The baseline OLS
+    (Model 1) includes distance to both Tegucigalpa and SPS, log
+    population, and log firms as explanatory variables. Model 2 adds
+    department fixed effects, which absorb unobserved heterogeneity
+    at the department level (e.g., road infrastructure quality,
+    historical migration networks, cultural factors). If the distance
+    coefficients remain significant after including department FE, this
+    indicates that within-department variation in distance still
+    matters for migration, not just across-department differences.
+
+-   Distance coefficients: A negative and significant coefficient on
+    `dist_tegu_km` means that municipalities farther from Tegucigalpa
+    send fewer migrant beneficiaries there, all else equal. The
+    magnitude tells us the semi- elasticity: a 1 km increase in
+    distance is associated with a given percentage decrease in migrant
+    count. This is the classic distance decay effect predicted by
+    spatial interaction models (Fotheringham & O'Kelly, 1989).
+
+-   Log population (`log_pop`): A positive coefficient indicates
+    that larger municipalities generate more migrants in absolute terms.
+    This is expected: the population of the origin acts as a "mass" in
+    the gravity equation. A coefficient close to 1 suggests proportional
+    scaling (doubling population roughly doubles migrant outflow).
+
+-   Log firms (`log_firms`): This variable proxies local economic opportunity. A negative coefficient would suggest that
+    municipalities with more firms retain their population — i.e.,
+    economic activity acts as a "pull" that counteracts outward
+    migration. Conversely, a positive coefficient may arise because
+    larger municipalities have both more firms and more people who
+    migrate, reflecting a scale effect rather than a causal retention
+    effect. The sign and significance of this coefficient, especially
+    after controlling for population, is key to understanding whether
+    local development policy can stem migration.
+
+-   Models 3–4 (Separate destinations): By splitting the analysis
+    into migration toward Tegucigalpa only (Model 3) and toward San
+    Pedro Sula only (Model 4), we can diagnose whether the same factors
+    operate symmetrically. Differences in coefficients across the two
+    destinations may reflect the distinct economic structures of the two
+    cities (Tegucigalpa as the political/ service centre vs. SPS as the
+    industrial/maquiladora hub).
+
+-   Models 5–6 (Migration rate): Using the migration rate
+    ($\text{migrants}/\text{population}$) as the dependent variable
+    removes the mechanical correlation with population size. The
+    `log_pop` coefficient here tests whether larger municipalities have
+    higher or lower migration intensity, not just higher absolute
+    numbers. A negative coefficient would confirm that smaller
+    municipalities experience proportionally stronger brain drain.
+
+### Poisson results
+
+Since the dependent variable is a count (number of migrant
+beneficiaries), the log-linear OLS specifications above may suffer from
+two issues: (1) the log transformation is undefined for zero counts,
+requiring the $\log(y+1)$ adjustment that introduces bias (Silva &
+Tenreyro, 2006), and (2) OLS estimates can be inconsistent under
+heteroskedasticity in a log-linear model.
+
+Poisson pseudo-maximum likelihood (PPML) addresses both problems. It
+estimates the multiplicative model $E[y_i | X_i] = \exp(X_i \beta)$
+directly, handling zeros naturally and providing consistent estimates
+even under heteroskedasticity. PPML has become the standard estimator
+for gravity-type models in trade and migration (Santos Silva & Tenreyro,
+2006; Beine, Bertoli & Fernández-Huertas Moraga, 2016). Coefficients are
+interpreted as semi-elasticities: a unit increase in a regressor
+changes the expected count by $100 \times (e^\beta - 1)$ percent.
+
+```{r}
+# Poisson: migrants to both cities
+p1_pois <- fepois(
+  mig_N ~ dist_tegu_km + dist_sps_km + log_pop + log_firms, 
+  data = econ)
+p2_pois <- fepois(
+  mig_N ~ dist_tegu_km + dist_sps_km + log_pop + log_firms | ADM1_ES,
+  data = econ)
+
+# Poisson: migrants to Tegucigalpa
+p3_pois <- fepois(
+  mig_cap_N ~ dist_tegu_km + log_pop + log_firms, 
+  data = econ)
+
+# Poisson: migrants to SPS
+p4_pois <- fepois(
+  mig_sps_N ~ dist_sps_km + log_pop + log_firms, 
+  data = econ)
+
+modelsummary(
+  list(
+    "Poisson(Mig)" = p1_pois,
+    "Poisson FE" = p2_pois,
+    "Poisson(→Tegu)" = p3_pois,
+    "Poisson(→SPS)" = p4_pois
+  ),
+  stars = c("*" = 0.10, "**" = 0.05, "***" = 0.01),
+  gof_map = c(
+    "nobs", "r.squared", "adj.r.squared", 
+    "within.r.squared", "FE: ADM1_ES"),
+  title = "Poisson Regression: Count of Migrant Beneficiaries",
+  notes = 
+  "Poisson pseudo-maximum-likelihood. Unit: municipality (cross-section 2020–2025)."
+)
+```
+
+Interpreting the Poisson results:
+
+-   Poisson(Mig) and Poisson FE: The first two columns mirror the
+    OLS specifications but use PPML. If the distance coefficients are
+    negative and significant, this confirms the gravity-model prediction
+    in a more appropriate count-data framework. The Poisson FE model
+    (column 2) adds department fixed effects to control for unobserved
+    regional heterogeneity.
+
+-   Poisson(→Tegu) and Poisson(→SPS): Destination-specific Poisson
+    models allow us to compare the elasticity of migration with respect
+    to distance for each city. A larger (more negative) distance
+    coefficient for one city suggests that distance is a stronger
+    deterrent to migration toward that city. This could reflect
+    differences in transportation infrastructure, the spatial
+    distribution of feeder municipalities, or the nature of labour
+    demand (e.g., SPS's maquiladora sector may attract workers from a
+    wider radius than Tegucigalpa's service economy).
+
+-   Comparison with OLS: If the Poisson and OLS results are
+    qualitatively similar — same signs, similar significance patterns —
+    this provides robustness to the findings. Discrepancies would
+    suggest that the log-linear OLS is affected by the zero-count
+    problem or heteroskedasticity bias.
+
+The combination of distance decay and the
+    role of local firms has direct policy relevance. Investment in local
+    economic development (e.g., small-business support, infrastructure)
+    in high-emigration municipalities could reduce the push to migrate,
+    while improved transport links may actually increase migration by
+    lowering the cost of relocation — a tension well-documented in the
+    development economics literature (Bryan & Morten, 2019).
+
+### Coefficient comparison
+
+The coefficient plot below compares point estimates and 95% confidence
+intervals from the baseline OLS (Model 1) and the department
+fixed-effects specification (Model 2). Coefficients that shift
+substantially between the two models suggest that department-level
+confounders influence the estimate, while robust coefficients indicate
+that the effect operates at the within-department level.
+
+```{r}
+# Coefficient plot for Model 1 (baseline) and Model 2 (with FE)
+coef_df <- bind_rows(
+  broom::tidy(m1, conf.int = TRUE) |> mutate(model = "OLS"),
+  broom::tidy(m2, conf.int = TRUE) |> mutate(model = "Dept. FE")
+) |>
+  filter(term != "(Intercept)")
+
+ggplot(coef_df, aes(x = estimate, y = term, color = model)) +
+  geom_pointrange(
+    aes(
+      xmin = conf.low, xmax = conf.high),
+      position = position_dodge(width = 0.4), 
+      size = 0.5) +
+  geom_vline(
+    xintercept = 0, linetype = "dashed", 
+    color = "grey50") +
+  scale_color_manual(
+    values = c(
+      "OLS" = "#e74c3c", 
+      "Dept. FE" = "#3498db")) +
+  labs(
+    title = "Coefficient Estimates: Determinants of Migration (Log Migrants)",
+    x = "Coefficient estimate", 
+    y = "", color = NULL) +
+  theme_minimal() + theme(legend.position = "bottom")
+```
+
+Key observations from the coefficient plot:
+
+-   If the distance coefficients remain negative and significant in
+    both specifications, distance decay is a robust phenomenon that
+    operates even within departments — not an artefact of comparing
+    geographically distinct regions.
+-   If the log_firms coefficient becomes insignificant or changes
+    sign after adding department FE, this suggests that the
+    cross-sectional relationship between firms and migration is driven
+    by between-department differences (e.g., more developed departments
+    having both more firms and different migration patterns), rather
+    than a within-department retention effect.
+-   The log_pop coefficient is expected to remain positive and
+    stable, as population is a strong mechanical predictor of total
+    migrant counts.
+
+## Conclusion
+
+This project examined the relationship between remittance flows and
+internal migration in Honduras. Using remittance records together with
+municipality-level geographic and economic data, the analysis explored
+whether remittances reveal patterns of migration toward major urban
+centers.
+
+The descriptive analysis shows that a significant number of remittance
+beneficiaries receive transfers in municipalities different from their
+place of birth, suggesting substantial internal migration within the
+country. Tegucigalpa emerges as the main destination for migrant
+remittance beneficiaries, while San Pedro Sula also appears as an
+important but somewhat more variable destination.
+
+The econometric results confirm that geographic distance plays a key
+role in shaping migration flows: municipalities located closer to the
+main cities tend to send more migrants. Population size also matters,
+since larger municipalities generate more migrants overall. At the same
+time, differences in local economic activity suggest that migration is
+influenced by a combination of geographic and structural factors.
+
+Overall, the results suggest that remittance data provide a useful lens
+for understanding internal migration patterns and regional inequalities
+within Honduras. When economic opportunities remain concentrated in a
+small number of urban centers, migration toward these cities may
+continue to increase spatial imbalances across regions.
+
+One limitation of this study is that receiving remittances in a
+different municipality from one’s birthplace serves only as a proxy for
+migration rather than a direct measure of movement. Future research
+could extend this analysis by incorporating additional migration
+datasets, labour market indicators, or longer-term municipal development
+measures.
+
+## References
+
+-   Anderson, J. E. (2011). The gravity model. *Annual Review of
+    Economics*, 3(1), 133–160.
+-   Beine, M., Bertoli, S., & Fernández-Huertas Moraga, J. (2016). A
+    practitioners' guide to gravity models of international migration.
+    *The World Economy*, 39(4), 496–512.
+-   Bryan, G., & Morten, M. (2019). The aggregate productivity effects
+    of internal migration: Evidence from Indonesia. *Journal of
+    Political Economy*, 127(5), 2229–2268.
+-   ECLAC (2017). *Demographic Observatory of Latin America and the
+    Caribbean 2017: Internal Migration*. United Nations, Santiago.
+-   Fotheringham, A. S., & O'Kelly, M. E. (1989). *Spatial Interaction
+    Models: Formulations and Applications*. Kluwer Academic Publishers.
+-   Harris, J. R., & Todaro, M. P. (1970). Migration, unemployment and
+    development: A two-sector analysis. *American Economic Review*,
+    60(1), 126–142.
+-   Head, K., & Mayer, T. (2014). Gravity equations: Workhorse, toolkit,
+    and cookbook. In *Handbook of International Economics* (Vol. 4, pp.
+    131–195). Elsevier.
+-   Ravenstein, E. G. (1885). The laws of migration. *Journal of the
+    Statistical Society of London*, 48(2), 167–235.
+-   Santos Silva, J. M. C., & Tenreyro, S. (2006). The log of gravity.
+    *The Review of Economics and Statistics*, 88(4), 641–658.
+-   Sjaastad, L. A. (1962). The costs and returns of human migration.
+    *Journal of Political Economy*, 70(5, Part 2), 80–93.
+-   World Bank (2009). *World Development Report 2009: Reshaping
+    Economic Geography*. Washington, DC.
+-   Zipf, G. K. (1946). The P1 P2 / D hypothesis: On the intercity
+    movement of persons. *American Sociological Review*, 11(6), 677–686.

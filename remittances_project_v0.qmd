@@ -1,12 +1,12 @@
 ---
 title: "Internal Migration Analysis Through Remittance Data in Honduras"
-author: "Elvis Casco"
 format:
-  html:
-    code-fold: true
+  pdf:
     toc: true
     toc-depth: 3
-    theme: cosmo
+    number-sections: true
+    colorlinks: true
+    geometry: margin=1in
 execute:
   warning: false
   message: false
@@ -16,7 +16,7 @@ execute:
 
 The dataset `remesas_year_munic.csv` contains individual-level remittance records
 aggregated by origin (birth) and destination (receipt) municipality in Honduras,
-spanning 2020–2025. Each row represents a unique combination of:
+spanning 2020–2024. Each row represents a unique combination of:
 
 | Column | Description |
 |--------|-------------|
@@ -56,8 +56,9 @@ Honduras.
 
 ```{r}
 library(tidyverse)
-library(plotly)
-library(DT)
+library(kableExtra)
+library(scales)
+library(patchwork)
 
 df <- read_csv("remesas_year_munic.csv", show_col_types = FALSE)
 
@@ -108,25 +109,37 @@ yearly <- df |>
     in_city_pct = round(in_city_N / total_N * 100, 1)
   )
 
-plot_ly(yearly, x = ~Year) |>
-  add_bars(y = ~in_city_pct, name = "Same municipality (no migration)",
-           marker = list(color = "#2ecc71")) |>
-  add_bars(y = ~capital_pct, name = "Migrants in Tegucigalpa",
-           marker = list(color = "#e74c3c")) |>
-  add_bars(y = ~sps_pct, name = "Migrants in San Pedro Sula",
-           marker = list(color = "#3498db")) |>
-  add_bars(y = ~other_pct, name = "Migrants in other cities",
-           marker = list(color = "#f39c12")) |>
-  layout(
-    barmode = "stack",
-    title = "Share of Remittance Beneficiaries by Migration Status (%)",
-    xaxis = list(title = "Year"),
-    yaxis = list(title = "% of beneficiaries"),
-    legend = list(orientation = "h", yanchor = "bottom", y = 1.02,
-                  xanchor = "center", x = 0.5),
-    height = 500
-  )
+yearly_long <- yearly |>
+  select(Year, in_city_pct, capital_pct, sps_pct, other_pct) |>
+  pivot_longer(-Year, names_to = "category", values_to = "pct") |>
+  mutate(category = factor(category,
+    levels = c("other_pct", "sps_pct", "capital_pct", "in_city_pct"),
+    labels = c("Migrants in other cities", "Migrants in San Pedro Sula",
+               "Migrants in Tegucigalpa", "Same municipality (no migration)")))
+
+ggplot(yearly_long, aes(x = factor(Year), y = pct, fill = category)) +
+  geom_col() +
+  scale_fill_manual(values = c(
+    "Same municipality (no migration)" = "#2ecc71",
+    "Migrants in Tegucigalpa" = "#e74c3c",
+    "Migrants in San Pedro Sula" = "#3498db",
+    "Migrants in other cities" = "#f39c12")) +
+  labs(title = "Share of Remittance Beneficiaries by Migration Status (%)",
+       x = "Year", y = "% of beneficiaries", fill = NULL) +
+  theme_minimal() +
+  theme(legend.position = "bottom", legend.text = element_text(size = 7))
 ```
+
+The stacked bar chart above decomposes the universe of remittance beneficiaries
+into four mutually exclusive groups each year. The dominant green segment
+("Same municipality") represents people who still live where they were born —
+they have not migrated. The red (Tegucigalpa) and blue (San Pedro Sula) segments
+capture internal migrants who moved to the two main cities, while the orange
+segment captures migrants to other urban centres. The relative stability of
+these shares over 2020–2024 indicates that the overall migration structure has
+not shifted drastically, although small year-to-year changes may reflect
+economic shocks (e.g., the post-COVID recovery in 2021–2022) or data coverage
+adjustments.
 
 ```{r}
 # Absolute numbers table
@@ -140,9 +153,18 @@ yearly |>
     `Other (migrants)` = other_N,
     `Tegu %` = capital_pct, `SPS %` = sps_pct
   ) |>
-  DT::datatable(options = list(pageLength = 10, dom = "t"),
-                rownames = FALSE)
+  kbl(booktabs = TRUE, format.args = list(big.mark = ",")) |>
+  kable_styling(latex_options = c("striped", "hold_position"), font_size = 9)
 ```
+
+The table above provides the raw numbers behind the stacked bar chart. Key
+columns to note: **Total** is the count of all remittance beneficiaries nationwide;
+**Tegucigalpa (migrants)** and **SPS (migrants)** are the subset who were born
+elsewhere but receive remittances in each city; **Tegu %** and **SPS %** express
+those migrants as a share of the national total. Together, migrants to the two
+main cities typically account for a notable fraction of all beneficiaries,
+underscoring the importance of rural-to-urban migration in Honduras's remittance
+landscape.
 
 ## 2 — Origin Departments of Migrants in Tegucigalpa
 
@@ -164,43 +186,51 @@ top_depts_cap <- cap_by_dept |>
 
 cap_top <- cap_by_dept |> filter(dept_born %in% top_depts_cap)
 
-plot_ly(cap_top, x = ~Year, y = ~N, color = ~dept_born, type = "bar",
-        colors = "Set3") |>
-  layout(
-    barmode = "stack",
-    title = "Migrant Beneficiaries in Tegucigalpa — Top 10 Origin Departments",
-    xaxis = list(title = "Year"),
-    yaxis = list(title = "Number of beneficiaries"),
-    legend = list(orientation = "h", yanchor = "bottom", y = 1.02,
-                  xanchor = "center", x = 0.5),
-    height = 550
-  )
+ggplot(cap_top, aes(x = factor(Year), y = N, fill = dept_born)) +
+  geom_col() +
+  scale_fill_brewer(palette = "Set3") +
+  scale_y_continuous(labels = comma) +
+  labs(title = "Migrant Beneficiaries in Tegucigalpa \u2014 Top 10 Origin Departments",
+       x = "Year", y = "Number of beneficiaries", fill = "Department") +
+  theme_minimal() +
+  theme(legend.position = "bottom", legend.text = element_text(size = 6))
 ```
+
+This stacked bar chart shows the top 10 origin departments for migrants living
+in Tegucigalpa. Each colour band represents one department, and the total height
+of the bar gives the aggregate volume of migrant beneficiaries for that year.
+Departments that consistently occupy wide bands — such as Olancho, El Paraíso,
+and Choluteca — are chronic "exporters" of people to the capital. Narrower
+bands for departments like Islas de la Bahía or Gracias a Dios reflect their
+smaller population bases and greater distance from Tegucigalpa.
 
 ```{r}
 # Heatmap: share of each origin department across years
-cap_pivot <- cap_by_dept |>
+cap_heat <- cap_by_dept |>
   group_by(dept_born, Year) |>
   summarise(N = sum(N), .groups = "drop") |>
-  pivot_wider(names_from = Year, values_from = N, values_fill = 0)
+  group_by(Year) |>
+  mutate(pct = round(N / sum(N) * 100, 1)) |>
+  ungroup()
 
-cap_mat <- cap_pivot |> select(-dept_born) |> as.matrix()
-rownames(cap_mat) <- cap_pivot$dept_born
-cap_pct <- round(sweep(cap_mat, 2, colSums(cap_mat), "/") * 100, 1)
-
-plot_ly(
-  x = colnames(cap_pct), y = rownames(cap_pct), z = cap_pct,
-  type = "heatmap", colorscale = "YlOrRd",
-  text = cap_pct, texttemplate = "%{text}",
-  hovertemplate = "Year: %{x}<br>Dept: %{y}<br>Share: %{z}%<extra></extra>"
-) |>
-  layout(
-    title = "Tegucigalpa: Origin Share of Migrant Beneficiaries by Department (%)",
-    xaxis = list(title = "Year"),
-    yaxis = list(title = "Birth Department"),
-    height = 650
-  )
+ggplot(cap_heat, aes(x = factor(Year), y = dept_born, fill = pct)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = pct), size = 2.5) +
+  scale_fill_distiller(palette = "YlOrRd", direction = 1) +
+  labs(title = "Tegucigalpa: Origin Share of Migrant Beneficiaries (%)",
+       x = "Year", y = "Birth Department", fill = "%") +
+  theme_minimal() +
+  theme(axis.text.y = element_text(size = 7))
 ```
+
+The heatmap shows each department's **percentage share** of all migrant
+beneficiaries in Tegucigalpa for every year. Darker cells indicate departments
+that contribute a larger fraction of the capital's migrants. This view normalises
+for different yearly totals, making it easy to spot structural shifts: if a
+department's share rises over time, it is becoming a relatively more important
+source of migration to the capital; a declining share may indicate that outflows
+are being redirected to San Pedro Sula or other cities, or that local conditions
+have improved.
 
 ## 3 — Origin Departments of Migrants in San Pedro Sula
 
@@ -219,42 +249,47 @@ top_depts_sps <- sps_by_dept |>
 
 sps_top <- sps_by_dept |> filter(dept_born %in% top_depts_sps)
 
-plot_ly(sps_top, x = ~Year, y = ~N, color = ~dept_born, type = "bar",
-        colors = "Pastel1") |>
-  layout(
-    barmode = "stack",
-    title = "Migrant Beneficiaries in San Pedro Sula — Top 10 Origin Departments",
-    xaxis = list(title = "Year"),
-    yaxis = list(title = "Number of beneficiaries"),
-    legend = list(orientation = "h", yanchor = "bottom", y = 1.02,
-                  xanchor = "center", x = 0.5),
-    height = 550
-  )
+ggplot(sps_top, aes(x = factor(Year), y = N, fill = dept_born)) +
+  geom_col() +
+  scale_fill_brewer(palette = "Pastel1") +
+  scale_y_continuous(labels = comma) +
+  labs(title = "Migrant Beneficiaries in SPS \u2014 Top 10 Origin Departments",
+       x = "Year", y = "Number of beneficiaries", fill = "Department") +
+  theme_minimal() +
+  theme(legend.position = "bottom", legend.text = element_text(size = 6))
 ```
+
+The same stacked bar is now shown for San Pedro Sula. The origin department
+mix is noticeably different from Tegucigalpa: western departments such as
+Santa Bárbara, Copán, and Lempira tend to feature more prominently, reflecting
+SPS's role as the economic hub of the **Sula Valley** and its proximity to the
+western highlands. Cortés itself is excluded as the "home" department, so the
+chart focuses on true inter-department migrants.
 
 ```{r}
-sps_pivot <- sps_by_dept |>
+sps_heat <- sps_by_dept |>
   group_by(dept_born, Year) |>
   summarise(N = sum(N), .groups = "drop") |>
-  pivot_wider(names_from = Year, values_from = N, values_fill = 0)
+  group_by(Year) |>
+  mutate(pct = round(N / sum(N) * 100, 1)) |>
+  ungroup()
 
-sps_mat <- sps_pivot |> select(-dept_born) |> as.matrix()
-rownames(sps_mat) <- sps_pivot$dept_born
-sps_pct <- round(sweep(sps_mat, 2, colSums(sps_mat), "/") * 100, 1)
-
-plot_ly(
-  x = colnames(sps_pct), y = rownames(sps_pct), z = sps_pct,
-  type = "heatmap", colorscale = list(c(0, "#ffffcc"), c(0.5, "#41b6c4"), c(1, "#253494")),
-  text = sps_pct, texttemplate = "%{text}",
-  hovertemplate = "Year: %{x}<br>Dept: %{y}<br>Share: %{z}%<extra></extra>"
-) |>
-  layout(
-    title = "San Pedro Sula: Origin Share of Migrant Beneficiaries by Department (%)",
-    xaxis = list(title = "Year"),
-    yaxis = list(title = "Birth Department"),
-    height = 650
-  )
+ggplot(sps_heat, aes(x = factor(Year), y = dept_born, fill = pct)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = pct), size = 2.5) +
+  scale_fill_distiller(palette = "YlGnBu", direction = 1) +
+  labs(title = "San Pedro Sula: Origin Share of Migrant Beneficiaries (%)",
+       x = "Year", y = "Birth Department", fill = "%") +
+  theme_minimal() +
+  theme(axis.text.y = element_text(size = 7))
 ```
+
+As with the Tegucigalpa heatmap, this one normalises by yearly totals to reveal
+each department's **share** of migrant beneficiaries in SPS. The blue-green colour
+scale ranges from light (low share) to dark (high share). Departments that are
+geographically close to SPS — particularly Santa Bárbara and Yoro — tend to show
+the highest shares, consistent with the distance-decay pattern we test
+econometrically in Section 9.
 
 ## 4 — Tegucigalpa vs San Pedro Sula: Migration Comparison
 
@@ -264,34 +299,45 @@ Side-by-side comparison of the two main cities as migration destinations.
 comp <- yearly |>
   select(Year, capital_N, sps_N, capital_USD, sps_USD)
 
-fig1 <- plot_ly(comp, x = ~Year) |>
-  add_bars(y = ~capital_N, name = "Tegucigalpa",
-           marker = list(color = "#e74c3c")) |>
-  add_bars(y = ~sps_N, name = "San Pedro Sula",
-           marker = list(color = "#3498db")) |>
-  layout(barmode = "group", yaxis = list(title = "Beneficiaries"))
+comp_long_n <- comp |>
+  select(Year, capital_N, sps_N) |>
+  pivot_longer(-Year, names_to = "city", values_to = "N") |>
+  mutate(city = ifelse(city == "capital_N", "Tegucigalpa", "San Pedro Sula"))
 
-fig2 <- plot_ly(comp, x = ~Year) |>
-  add_bars(y = ~capital_USD, name = "Tegucigalpa",
-           marker = list(color = "#e74c3c"), showlegend = FALSE) |>
-  add_bars(y = ~sps_USD, name = "San Pedro Sula",
-           marker = list(color = "#3498db"), showlegend = FALSE) |>
-  layout(barmode = "group", yaxis = list(title = "USD"))
+comp_long_usd <- comp |>
+  select(Year, capital_USD, sps_USD) |>
+  pivot_longer(-Year, names_to = "city", values_to = "USD") |>
+  mutate(city = ifelse(city == "capital_USD", "Tegucigalpa", "San Pedro Sula"))
 
-subplot(fig1, fig2, nrows = 1, shareX = TRUE, titleX = TRUE, titleY = TRUE) |>
-  layout(
-    title = "Tegucigalpa vs San Pedro Sula — Migrant Remittance Beneficiaries",
-    legend = list(orientation = "h", yanchor = "bottom", y = 1.08,
-                  xanchor = "center", x = 0.5),
-    height = 450,
-    annotations = list(
-      list(x = 0.2, y = 1.05, text = "Migrant Beneficiaries",
-           showarrow = FALSE, xref = "paper", yref = "paper", font = list(size = 14)),
-      list(x = 0.8, y = 1.05, text = "Remittance Volume (USD)",
-           showarrow = FALSE, xref = "paper", yref = "paper", font = list(size = 14))
-    )
-  )
+fig1 <- ggplot(comp_long_n, aes(x = factor(Year), y = N, fill = city)) +
+  geom_col(position = "dodge") +
+  scale_fill_manual(values = c("Tegucigalpa" = "#e74c3c",
+                                "San Pedro Sula" = "#3498db")) +
+  scale_y_continuous(labels = comma) +
+  labs(title = "Migrant Beneficiaries", x = "Year", y = "Beneficiaries",
+       fill = NULL) +
+  theme_minimal() + theme(legend.position = "bottom")
+
+fig2 <- ggplot(comp_long_usd, aes(x = factor(Year), y = USD, fill = city)) +
+  geom_col(position = "dodge") +
+  scale_fill_manual(values = c("Tegucigalpa" = "#e74c3c",
+                                "San Pedro Sula" = "#3498db")) +
+  scale_y_continuous(labels = comma) +
+  labs(title = "Remittance Volume (USD)", x = "Year", y = "USD",
+       fill = NULL) +
+  theme_minimal() + theme(legend.position = "bottom")
+
+fig1 + fig2 + plot_layout(guides = "collect") &
+  theme(legend.position = "bottom")
 ```
+
+The left panel compares the **number** of migrant beneficiaries arriving in each
+city, while the right panel compares the **USD volume** of remittances they
+receive. If SPS has fewer migrants but comparable USD volume, it would mean that
+migrants in SPS receive larger per-capita remittances — possibly reflecting
+higher wages in the maquiladora sector and correspondingly higher transfers from
+relatives abroad. Conversely, if Tegucigalpa dominates both panels, it confirms
+its role as the primary internal migration destination.
 
 ## 5 — Net Migration Pressure: Ratio of Migrants to Locals
 
@@ -329,29 +375,24 @@ pressure <- stayers |>
   ) |>
   arrange(desc(migration_ratio))
 
-plot_ly(
-  pressure,
-  x = ~reorder(dept_born, -migration_ratio),
-  y = ~migration_ratio,
-  type = "bar",
-  marker = list(
-    color = ~migration_ratio,
-    colorscale = list(c(0, "#fee0d2"), c(1, "#de2d26")),
-    showscale = TRUE, colorbar = list(title = "Ratio")
-  ),
-  hoverinfo = "text",
-  text = ~paste0(dept_born, "<br>Ratio: ", migration_ratio,
-                 "<br>Stayers: ", format(stayers_N, big.mark = ","),
-                 "<br>To Tegu: ", format(to_capital_N, big.mark = ","),
-                 "<br>To SPS: ", format(to_sps_N, big.mark = ","))
-) |>
-  layout(
-    title = "Migration Pressure Ratio (Migrants to Tegu+SPS / Stayers) by Birth Department",
-    xaxis = list(title = "Birth Department", tickangle = -45),
-    yaxis = list(title = "Migration ratio"),
-    height = 500
-  )
+ggplot(pressure, aes(x = reorder(dept_born, -migration_ratio),
+                     y = migration_ratio, fill = migration_ratio)) +
+  geom_col() +
+  scale_fill_gradient(low = "#fee0d2", high = "#de2d26", name = "Ratio") +
+  labs(title = "Migration Pressure Ratio (Migrants to Tegu+SPS / Stayers)",
+       x = "Birth Department", y = "Migration ratio") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 7))
 ```
+
+The bar chart ranks all 18 departments by their **migration pressure ratio**:
+the total number of people born in that department who now live in Tegucigalpa
+or SPS, divided by the number who stayed in their birth municipality. A ratio
+of 0.10 means that for every 100 stayers there are 10 migrants to the two main
+cities. Departments at the left end of the chart face the strongest demographic
+drain toward the urban centres. This metric is informative for regional
+development policy because it identifies where outflows are most acute relative
+to the local population base.
 
 ```{r}
 # Table view
@@ -363,9 +404,17 @@ pressure |>
     `To Tegucigalpa` = to_capital_N, `To SPS` = to_sps_N,
     `To both cities` = to_cities_N, `Migration ratio` = migration_ratio
   ) |>
-  DT::datatable(options = list(pageLength = 18, dom = "t"),
-                rownames = FALSE)
+  kbl(booktabs = TRUE, format.args = list(big.mark = ",")) |>
+  kable_styling(latex_options = c("striped", "hold_position"), font_size = 8)
 ```
+
+The table provides the underlying numbers for the bar chart above: **Stayers**
+is the count of beneficiaries still living in their birth municipality,
+**To Tegucigalpa** and **To SPS** are the migrant counts to each city, **To
+both cities** is their sum, and **Migration ratio** is the quotient. Departments
+with few firms and limited employment opportunities tend to show higher ratios,
+consistent with the Harris–Todaro model's prediction that expected income
+differentials drive rural-to-urban migration.
 
 ## 6 — Year-over-Year Growth of Migrant Beneficiaries
 
@@ -383,17 +432,23 @@ growth <- bind_rows(
     mutate(city = "San Pedro Sula")
 )
 
-plot_ly(growth, x = ~Year, y = ~N, color = ~city, type = "scatter",
-        mode = "lines+markers",
-        colors = c("Tegucigalpa" = "#e74c3c", "San Pedro Sula" = "#3498db")) |>
-  layout(
-    title = "Migrant Beneficiaries Over Time (Tegucigalpa vs SPS)",
-    xaxis = list(title = "Year"),
-    yaxis = list(title = "Beneficiaries"),
-    legend = list(title = list(text = "Destination")),
-    height = 450
-  )
+ggplot(growth, aes(x = Year, y = N, color = city)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  scale_color_manual(values = c("Tegucigalpa" = "#e74c3c",
+                                "San Pedro Sula" = "#3498db")) +
+  scale_y_continuous(labels = comma) +
+  labs(title = "Migrant Beneficiaries Over Time (Tegucigalpa vs SPS)",
+       x = "Year", y = "Beneficiaries", color = "Destination") +
+  theme_minimal() + theme(legend.position = "bottom")
 ```
+
+The line chart tracks the **absolute number** of migrant beneficiaries in each
+city over time. An upward trend signals accelerating urbanisation via internal
+migration, while a plateau or decline may reflect saturation, improved conditions
+in origin municipalities, or external shocks. Comparing the slopes of the two
+lines reveals whether one city is gaining migrants faster than the other —
+an important input for urban planning and infrastructure investment decisions.
 
 ```{r}
 growth_table <- growth |>
@@ -403,9 +458,18 @@ growth_table <- growth |>
     `SPS growth %`  = round((`San Pedro Sula` / lag(`San Pedro Sula`) - 1) * 100, 1)
   )
 
-DT::datatable(growth_table, options = list(pageLength = 10, dom = "t"),
-              rownames = FALSE)
+kbl(growth_table, booktabs = TRUE, digits = 1,
+    format.args = list(big.mark = ",")) |>
+  kable_styling(latex_options = c("striped", "hold_position"), font_size = 9)
 ```
+
+The growth table quantifies the year-over-year change shown in the line chart.
+Positive values in **Tegu growth %** and **SPS growth %** indicate years where
+migrant inflows accelerated. The first row (base year) has no growth rate; from
+the second row onward the percentage reflects how much the migrant count changed
+relative to the previous year. Exceptionally large positive or negative swings
+may correspond to macroeconomic shocks, natural disasters (e.g., hurricanes Eta
+and Iota in late 2020), or changes in remittance reporting coverage.
 
 ## 7 — Top Origin Municipalities Feeding the Two Cities
 
@@ -422,15 +486,25 @@ cap_mun <- cap_migrants |>
   slice_max(N, n = 20) |>
   mutate(origin = paste0(dept_born, " (D", codDeptoNac, "-M", codMunNac, ")"))
 
-plot_ly(cap_mun, x = ~reorder(origin, -N), y = ~N, color = ~dept_born,
-        type = "bar", colors = "Set2") |>
-  layout(
-    title = "Top 20 Origin Municipalities for Migrants in Tegucigalpa (excl. Fco. Morazán)",
-    xaxis = list(title = "Origin (Dept - Mun code)", tickangle = -60),
-    yaxis = list(title = "Beneficiaries"),
-    showlegend = FALSE, height = 500
-  )
+ggplot(cap_mun, aes(x = reorder(origin, -N), y = N, fill = dept_born)) +
+  geom_col() +
+  scale_fill_brewer(palette = "Set2") +
+  scale_y_continuous(labels = comma) +
+  labs(title = "Top 20 Origin Municipalities for Migrants in Tegucigalpa",
+       subtitle = "(excl. Francisco Morazán)",
+       x = "Origin (Dept - Mun code)", y = "Beneficiaries") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1, size = 5),
+        legend.position = "none")
 ```
+
+This chart drills down from the department level to the **municipality** level,
+showing the top 20 origin municipalities for migrants in Tegucigalpa. People born
+in Francisco Morazán (department 8) are excluded because they are locals, not
+migrants. The remaining municipalities are labelled by their department name and
+code pair (e.g., "Olancho (D15-M1)" for the cabecera of Olancho). Municipalities
+that appear at the top of this list are the ones losing the most people to the
+capital — they are prime candidates for targeted local development interventions.
 
 ```{r}
 # For SPS: exclude people born in department 5 (Cortés)
@@ -441,15 +515,25 @@ sps_mun <- sps_migrants |>
   slice_max(N, n = 20) |>
   mutate(origin = paste0(dept_born, " (D", codDeptoNac, "-M", codMunNac, ")"))
 
-plot_ly(sps_mun, x = ~reorder(origin, -N), y = ~N, color = ~dept_born,
-        type = "bar", colors = "Dark2") |>
-  layout(
-    title = "Top 20 Origin Municipalities for Migrants in San Pedro Sula (excl. Cortés)",
-    xaxis = list(title = "Origin (Dept - Mun code)", tickangle = -60),
-    yaxis = list(title = "Beneficiaries"),
-    showlegend = FALSE, height = 500
-  )
+ggplot(sps_mun, aes(x = reorder(origin, -N), y = N, fill = dept_born)) +
+  geom_col() +
+  scale_fill_brewer(palette = "Dark2") +
+  scale_y_continuous(labels = comma) +
+  labs(title = "Top 20 Origin Municipalities for Migrants in San Pedro Sula",
+       subtitle = "(excl. Cortés)",
+       x = "Origin (Dept - Mun code)", y = "Beneficiaries") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1, size = 5),
+        legend.position = "none")
 ```
+
+The equivalent chart for San Pedro Sula excludes Cortés (department 5) and
+shows the top 20 origin municipalities sending migrants to SPS. The geographic
+concentration is typically different: western highland municipalities from
+departments like Santa Bárbara, Copán, and Lempira are expected to rank highly,
+reflecting the gravity of the Sula Valley labour market. Comparing the two
+charts side by side reveals whether the same municipalities feed both cities
+or whether each city draws from a distinct catchment area.
 
 ## 8 — Remittance Value per Migrant Beneficiary
 
@@ -476,19 +560,30 @@ avg_all <- bind_rows(
     mutate(avg_usd = USD / N, city = "Same city (non-migrants)")
 )
 
-plot_ly(avg_all, x = ~Year, y = ~avg_usd, color = ~city, type = "scatter",
-        mode = "lines+markers",
-        colors = c("Tegucigalpa" = "#e74c3c", "San Pedro Sula" = "#3498db",
-                    "Other cities (migrants)" = "#f39c12",
-                    "Same city (non-migrants)" = "#2ecc71")) |>
-  layout(
-    title = "Average Remittance per Beneficiary by Migration Status",
-    xaxis = list(title = "Year"),
-    yaxis = list(title = "Avg USD per beneficiary"),
-    legend = list(title = list(text = "Category")),
-    height = 450
-  )
+ggplot(avg_all, aes(x = Year, y = avg_usd, color = city)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  scale_color_manual(values = c(
+    "Tegucigalpa" = "#e74c3c", "San Pedro Sula" = "#3498db",
+    "Other cities (migrants)" = "#f39c12",
+    "Same city (non-migrants)" = "#2ecc71")) +
+  labs(title = "Average Remittance per Beneficiary by Migration Status",
+       x = "Year", y = "Avg USD per beneficiary", color = "Category") +
+  theme_minimal() + theme(legend.position = "bottom",
+                          legend.text = element_text(size = 7))
 ```
+
+This line chart compares the **average remittance per beneficiary** across four
+categories: migrants in Tegucigalpa, migrants in SPS, migrants in other cities,
+and non-migrants (stayers). If migrants to a particular city receive higher
+per-capita remittances, it may indicate that their relatives abroad send more
+money to compensate for the higher cost of living in urban areas, or that
+migrants in that city have stronger diaspora networks. Conversely, a declining
+trend in average remittance could reflect an increasing number of beneficiaries
+(the denominator rises faster than total USD), or a shift in the type of
+migrants arriving. This metric is important for understanding whether internal
+migration is financially supported by international remittances, effectively
+linking domestic urbanisation to global labour markets.
 
 ## 9 — Econometric Analysis: Determinants of Internal Migration
 
@@ -617,7 +712,8 @@ econ |>
     Max    = round(max(value, na.rm = TRUE), 2),
     .groups = "drop"
   ) |>
-  DT::datatable(options = list(pageLength = 10, dom = "t"), rownames = FALSE)
+  kbl(booktabs = TRUE) |>
+  kable_styling(latex_options = c("striped", "hold_position"), font_size = 9)
 ```
 
 The descriptive statistics highlight substantial heterogeneity across Honduras's 298
@@ -745,22 +841,14 @@ coef_df <- bind_rows(
 ) |>
   filter(term != "(Intercept)")
 
-plot_ly(coef_df, x = ~estimate, y = ~term, color = ~model,
-        type = "scatter", mode = "markers",
-        error_x = list(
-          type = "data",
-          symmetric = FALSE,
-          arrayminus = ~estimate - conf.low,
-          array = ~conf.high - estimate
-        ),
-        colors = c("OLS" = "#e74c3c", "Dept. FE" = "#3498db")) |>
-  layout(
-    title = "Coefficient Estimates: Determinants of Migration (Log Migrants)",
-    xaxis = list(title = "Coefficient estimate", zeroline = TRUE),
-    yaxis = list(title = ""),
-    legend = list(orientation = "h", y = -0.15),
-    height = 400
-  )
+ggplot(coef_df, aes(x = estimate, y = term, color = model)) +
+  geom_pointrange(aes(xmin = conf.low, xmax = conf.high),
+                  position = position_dodge(width = 0.4), size = 0.5) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
+  scale_color_manual(values = c("OLS" = "#e74c3c", "Dept. FE" = "#3498db")) +
+  labs(title = "Coefficient Estimates: Determinants of Migration (Log Migrants)",
+       x = "Coefficient estimate", y = "", color = NULL) +
+  theme_minimal() + theme(legend.position = "bottom")
 ```
 
 Key observations from the coefficient plot:
@@ -787,45 +875,31 @@ by population size and economic structure.
 
 ```{r}
 # Scatter: distance vs migration rate, coloured by firms
-p1 <- plot_ly(econ, x = ~dist_tegu_km, y = ~log_mig_cap,
-              color = ~log_firms,
-              size = ~log_pop,
-              type = "scatter", mode = "markers",
-              marker = list(opacity = 0.6, sizemode = "area", sizeref = 0.3),
-              colors = "YlOrRd",
-              hoverinfo = "text",
-              text = ~paste0(ADM2_ES, " (", ADM1_ES, ")",
-                             "<br>Dist: ", round(dist_tegu_km, 0), " km",
-                             "<br>Migrants: ", format(mig_cap_N, big.mark = ","),
-                             "<br>Firms: ", format(total_firms, big.mark = ","))) |>
-  layout(
-    title = "Distance to Tegucigalpa vs Migrant Outflow (size = pop, colour = firms)",
-    xaxis = list(title = "Distance to Tegucigalpa (km)"),
-    yaxis = list(title = "Log(migrant beneficiaries → Tegu)"),
-    height = 500
-  )
-p1
+ggplot(econ, aes(x = dist_tegu_km, y = log_mig_cap,
+                 size = log_pop, color = log_firms)) +
+  geom_point(alpha = 0.6) +
+  scale_color_distiller(palette = "YlOrRd", direction = 1) +
+  scale_size_continuous(range = c(1, 8)) +
+  labs(title = "Distance to Tegucigalpa vs Migrant Outflow",
+       subtitle = "Size = population, colour = firms",
+       x = "Distance to Tegucigalpa (km)",
+       y = "Log(migrant beneficiaries to Tegu)",
+       size = "Log(pop)", color = "Log(firms)") +
+  theme_minimal()
 ```
 
 ```{r}
-p2 <- plot_ly(econ, x = ~dist_sps_km, y = ~log_mig_sps,
-              color = ~log_firms,
-              size = ~log_pop,
-              type = "scatter", mode = "markers",
-              marker = list(opacity = 0.6, sizemode = "area", sizeref = 0.3),
-              colors = "YlGnBu",
-              hoverinfo = "text",
-              text = ~paste0(ADM2_ES, " (", ADM1_ES, ")",
-                             "<br>Dist: ", round(dist_sps_km, 0), " km",
-                             "<br>Migrants: ", format(mig_sps_N, big.mark = ","),
-                             "<br>Firms: ", format(total_firms, big.mark = ","))) |>
-  layout(
-    title = "Distance to San Pedro Sula vs Migrant Outflow (size = pop, colour = firms)",
-    xaxis = list(title = "Distance to San Pedro Sula (km)"),
-    yaxis = list(title = "Log(migrant beneficiaries → SPS)"),
-    height = 500
-  )
-p2
+ggplot(econ, aes(x = dist_sps_km, y = log_mig_sps,
+                 size = log_pop, color = log_firms)) +
+  geom_point(alpha = 0.6) +
+  scale_color_distiller(palette = "YlGnBu", direction = 1) +
+  scale_size_continuous(range = c(1, 8)) +
+  labs(title = "Distance to San Pedro Sula vs Migrant Outflow",
+       subtitle = "Size = population, colour = firms",
+       x = "Distance to San Pedro Sula (km)",
+       y = "Log(migrant beneficiaries to SPS)",
+       size = "Log(pop)", color = "Log(firms)") +
+  theme_minimal()
 ```
 
 ### 9.6 — Poisson Regression (Count Model)
