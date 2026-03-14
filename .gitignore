@@ -12,6 +12,7 @@ Thumbs.db
 *.html
 *.nb.html
 *.qmd.cache/
+*_files/
 # Ignore Python cache
 __pycache__/
 *.pyc
